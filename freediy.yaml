@@ -1,0 +1,84 @@
+
+# 名称：OpenClash配置
+
+# 锚点定义 (极致精简重复逻辑)
+Anchor_PR: &Anchor_PR {type: http, interval: 3600, health-check: {enable: true, url: 'http://www.gstatic.com/generate_204', interval: 300}, filter: "^(?!.*(群|邀请|官网|流量|到期|订阅|提醒|测试)).*$"}
+Anchor_OB: &Anchor_OB [自动选择, 香港自动, 日本自动, 美国自动, 韩国自动, 香港手动, 日本手动, 美国手动, 韩国手动, DIRECT]
+Anchor_UT: &Anchor_UT {type: url-test, url: 'http://www.gstatic.com/generate_204', interval: 300, tolerance: 50, include-all: true, hidden: true, lazy: true}
+Anchor_HS: &Anchor_HS {type: select, include-all: true, hidden: false}
+
+# 地区识别正则
+Reg_HK: &Reg_HK '^(?i)(?=.*(香港|🇭🇰|HK|Hong)).*$'
+Reg_JP: &Reg_JP '^(?i)(?=.*(日本|🇯🇵|JP|Japan)).*$'
+Reg_US: &Reg_US '^(?i)(?=.*(美国|美國|🇺🇸|US|United States)).*$'
+Reg_KR: &Reg_KR '^(?i)(?=.*(韩国|韓國|🇰🇷|KR|Korea)).*$'
+
+# 核心设置
+mixed-port: 7890
+allow-lan: true
+mode: rule
+ipv6: true
+unified-delay: true
+tcp-concurrent: true
+global-client-fingerprint: chrome
+sniffer:
+  enable: true
+  sniff: { HTTP: {ports: [80, 8080-8880]}, TLS: {ports: [443, 8443]}, QUIC: {ports: [443, 8443]} }
+  skip-domain: ['Mijia Cloud', '+.apple.com']
+dns:
+  enable: true
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  nameserver: [https://doh.pub/dns-query, https://dns.alidns.com/dns-query]
+
+# 机场订阅
+proxy-providers:
+  机场名: 
+    <<: *Anchor_PR
+    url: "这里填入你的订阅地址" 
+
+# 策略组 (业务组全节点可选 + 地区组各自可见)
+proxy-groups:
+  - {name: '一键代理', type: select, proxies: *Anchor_OB, use: [机场名]}
+  - {name: 'AI', type: select, proxies: *Anchor_OB, use: [机场名]}
+  - {name: 'YouTube', type: select, proxies: *Anchor_OB, use: [机场名]}
+  - {name: 'GitHub', type: select, proxies: *Anchor_OB, use: [机场名]}
+  - {name: '流媒体', type: select, proxies: *Anchor_OB, use: [机场名]}
+  - {name: 'TikTok', type: select, proxies: *Anchor_OB, use: [机场名]}
+  - {name: '社交媒体', type: select, proxies: *Anchor_OB, use: [机场名]}
+  - {name: 'Telegram', type: select, proxies: *Anchor_OB, use: [机场名]}
+  - {name: '🛡️ 广告拦截', type: select, proxies: [REJECT, DIRECT]}
+  - {name: '兜底分流', type: select, proxies: *Anchor_OB, use: [机场名]}
+
+  - {name: '自动选择', <<: *Anchor_UT, use: [机场名]}
+  - {name: 香港自动, <<: *Anchor_UT, filter: *Reg_HK, use: [机场名]}
+  - {name: 日本自动, <<: *Anchor_UT, filter: *Reg_JP, use: [机场名]}
+  - {name: 美国自动, <<: *Anchor_UT, filter: *Reg_US, use: [机场名]}
+  - {name: 韩国自动, <<: *Anchor_UT, filter: *Reg_KR, use: [机场名]}
+  
+  - {name: 香港手动, <<: *Anchor_HS, filter: *Reg_HK, use: [机场名]}
+  - {name: 日本手动, <<: *Anchor_HS, filter: *Reg_JP, use: [机场名]}
+  - {name: 美国手动, <<: *Anchor_HS, filter: *Reg_US, use: [机场名]}
+  - {name: 韩国手动, <<: *Anchor_HS, filter: *Reg_KR, use: [机场名]}
+
+# 规则模块 (最精简的外部规则源)
+rule-providers:
+  ai: { type: http, behavior: classical, url: 'https://cdn.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/Clash/OpenAI/OpenAI.yaml', path: ./ruleset/ai.yaml, interval: 86400 }
+  youtube: { type: http, behavior: classical, url: 'https://cdn.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/Clash/YouTube/YouTube.yaml', path: ./ruleset/youtube.yaml, interval: 86400 }
+  github: { type: http, behavior: classical, url: 'https://cdn.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/Clash/GitHub/GitHub.yaml', path: ./ruleset/github.yaml, interval: 86400 }
+  media: { type: http, behavior: classical, url: 'https://cdn.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/Clash/Netflix/Netflix.yaml', path: ./ruleset/media.yaml, interval: 86400 }
+  telegram: { type: http, behavior: classical, url: 'https://cdn.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/Clash/Telegram/Telegram.yaml', path: ./ruleset/telegram.yaml, interval: 86400 }
+  ads: { type: http, behavior: domain, url: 'https://cdn.jsdelivr.net/gh/Loyalsoldier/clash-rules@release/reject.txt', path: ./ruleset/ads.yaml, interval: 86400 }
+
+rules:
+  - RULE-SET,ads,🛡️ 广告拦截
+  - RULE-SET,ai,AI
+  - RULE-SET,github,GitHub
+  - RULE-SET,youtube,YouTube
+  - RULE-SET,media,流媒体
+  - RULE-SET,telegram,Telegram
+  - GEOSITE,apple,DIRECT
+  - GEOSITE,microsoft,DIRECT
+  - DOMAIN-SUFFIX,bing.com,AI
+  - GEOIP,CN,DIRECT,no-resolve
+  - MATCH,兜底分流
