@@ -59,27 +59,92 @@ proxy-providers:
 
 # ================= 策略组 =================
 proxy-groups:
-  - {name: '一键代理', type: select, use: [Sub]} 
-  - {name: 'AI', type: select, proxies: *Anchor_OB, use: [Sub]} 
-  - {name: '流媒体', type: select, proxies: *Anchor_OB, use: [Sub]}
-  - {name: 'TikTok', type: select, proxies: *Anchor_OB, use: [Sub]}
-  - {name: 'GitHub', type: select, proxies: *Anchor_OB, use: [Sub]}
-  - {name: '社交媒体', type: select, proxies: *Anchor_OB, use: [Sub]}
-  - {name: 'Telegram', type: select, proxies: *Anchor_OB, use: [Sub]}
-  - {name: '🛡️ 广告拦截', type: select, proxies: [REJECT, DIRECT]}
-  - {name: '兜底分流', type: select, proxies: *Anchor_OB, use: [Sub]}
+  - name: '一键代理'
+    type: select
+    proxies: [Sub]  # 使用 Sub 节点
 
-  - {name: '自动选择', <<: *Anchor_UT, use: [Sub]}
-  - {name: 香港自动, <<: *Anchor_UT, filter: *Reg_HK, use: [Sub]}
-  - {name: 日本自动, <<: *Anchor_UT, filter: *Reg_JP, use: [Sub]}
-  - {name: 美国自动, <<: *Anchor_UT, filter: *Reg_US, use: [Sub]}
-  - {name: 韩国自动, <<: *Anchor_UT, filter: *Reg_KR, use: [Sub]}
-  
-  - {name: 香港手动, <<: *Anchor_HS, filter: *Reg_HK, use: [Sub]}
-  - {name: 日本手动, <<: *Anchor_HS, filter: *Reg_JP, use: [Sub]}
-  - {name: 美国手动, <<: *Anchor_HS, filter: *Reg_US, use: [Sub]}
-  - {name: 韩国手动, <<: *Anchor_HS, filter: *Reg_KR, use: [Sub]}
+  - name: 'AI'
+    type: select
+    proxies: *Anchor_OB
+    use: [Sub]
 
+  - name: '流媒体'
+    type: select
+    proxies: *Anchor_OB
+    use: [Sub]
+
+  - name: 'TikTok'
+    type: select
+    proxies: *Anchor_OB
+    use: [Sub]
+
+  - name: 'GitHub'
+    type: select
+    proxies: *Anchor_OB
+    use: [Sub]
+
+  - name: '社交媒体'
+    type: select
+    proxies: *Anchor_OB
+    use: [Sub]
+
+  - name: 'Telegram'
+    type: select
+    proxies: *Anchor_OB
+    use: [Sub]
+
+  - name: '🛡️ 广告拦截'
+    type: select
+    proxies: [REJECT, DIRECT]
+
+  - name: '兜底分流'
+    type: select
+    proxies: *Anchor_OB
+    use: [Sub]
+
+  - name: '自动选择'
+    <<: *Anchor_UT
+    use: [Sub]
+
+  - name: '香港自动'
+    <<: *Anchor_UT
+    filter: *Reg_HK
+    use: [Sub]
+
+  - name: '日本自动'
+    <<: *Anchor_UT
+    filter: *Reg_JP
+    use: [Sub]
+
+  - name: '美国自动'
+    <<: *Anchor_UT
+    filter: *Reg_US
+    use: [Sub]
+
+  - name: '韩国自动'
+    <<: *Anchor_UT
+    filter: *Reg_KR
+    use: [Sub]
+
+  - name: '香港手动'
+    <<: *Anchor_HS
+    filter: *Reg_HK
+    use: [Sub]
+
+  - name: '日本手动'
+    <<: *Anchor_HS
+    filter: *Reg_JP
+    use: [Sub]
+
+  - name: '美国手动'
+    <<: *Anchor_HS
+    filter: *Reg_US
+    use: [Sub]
+
+  - name: '韩国手动'
+    <<: *Anchor_HS
+    filter: *Reg_KR
+    use: [Sub]
 # ================= 规则模块 =================
 rule-providers:
   ai: { type: http, behavior: classical, url: 'https://cdn.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/Clash/OpenAI/OpenAI.yaml', path: ./ruleset/ai.yaml, interval: 86400 }
