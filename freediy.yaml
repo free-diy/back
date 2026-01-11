@@ -1,17 +1,21 @@
-# OpenClash 终极定型版
+# OpenClash 终极定型完整版 - 2026 修正
 
 # ================= 锚点定义 =================
 Anchor_PR: &Anchor_PR {type: http, interval: 3600, health-check: {enable: true, url: 'http://www.gstatic.com/generate_204', interval: 300}}
-# 包含所有子组，实现策略组内手动切换地区
-Anchor_OB: &Anchor_OB [自动选择, 香港自动, 日本自动, 美国自动, 韩国自动, 香港手动, 日本手动, 美国手动, 韩国手动, 一键代理, DIRECT]
-Anchor_UT: &Anchor_UT {type: url-test, url: 'http://www.gstatic.com/generate_204', interval: 300, tolerance: 50, include-all: true}
-Anchor_HS: &Anchor_HS {type: select, include-all: true}
 
-# 地区识别正则
+# 策略组列表锚点（已加入台湾、新加坡）
+Anchor_OB: &Anchor_OB [自动选择, 香港自动, 日本自动, 美国自动, 韩国自动, 台湾自动, 新加坡自动, 香港手动, 日本手动, 美国手动, 韩国手动, 台湾手动, 新加坡手动, 一键代理, DIRECT]
+
+Anchor_UT: &Anchor_UT {type: url-test, url: 'http://www.gstatic.com/generate_204', interval: 300, tolerance: 50}
+Anchor_HS: &Anchor_HS {type: select}
+
+# 地区识别正则补齐
 Reg_HK: &Reg_HK '(?i)香港|HK|Hong|HKG|HONGKONG'
 Reg_JP: &Reg_JP '(?i)日本|JP|Japan|NRT|KIX|TOK|东京|大阪'
 Reg_US: &Reg_US '(?i)美国|US|States|USA|LAX|SFO|纽约'
 Reg_KR: &Reg_KR '(?i)韩国|KR|Korea|首尔|SEL|KOR|春川'
+Reg_TW: &Reg_TW '(?i)台湾|TW|Taiwan|Taipei|TP|新北|台中'
+Reg_SG: &Reg_SG '(?i)新加坡|SG|Singapore|SIN'
 
 # ================= 核心设置 =================
 mixed-port: 7890
@@ -22,7 +26,6 @@ unified-delay: true
 tcp-concurrent: true
 global-client-fingerprint: chrome
 
-# 开启嗅探，确保分流准确性
 sniffer:
   enable: true
   sniff:
@@ -35,8 +38,7 @@ dns:
   enable: true
   enhanced-mode: fake-ip
   fake-ip-range: 198.18.0.1/16
-  proxy-server-nameserver: [180.184.1.1, 180.184.2.2]
-  # 关键：过滤 DDNS 和核心网站，防止 Fake-IP 干扰
+  proxy-server-nameserver: [223.5.5.5, 119.29.29.29]
   fake-ip-filter:
     - '+.aliyun.com'
     - '+.tencent.com'
@@ -61,37 +63,31 @@ proxy-providers:
 proxy-groups:
   - name: '一键代理'
     type: select
-    proxies: [Sub]  # 使用 Sub 节点
+    use: [Sub]
 
   - name: 'AI'
     type: select
     proxies: *Anchor_OB
-    use: [Sub]
 
   - name: '流媒体'
     type: select
     proxies: *Anchor_OB
-    use: [Sub]
 
   - name: 'TikTok'
     type: select
     proxies: *Anchor_OB
-    use: [Sub]
 
   - name: 'GitHub'
     type: select
     proxies: *Anchor_OB
-    use: [Sub]
 
   - name: '社交媒体'
     type: select
     proxies: *Anchor_OB
-    use: [Sub]
 
   - name: 'Telegram'
     type: select
     proxies: *Anchor_OB
-    use: [Sub]
 
   - name: '🛡️ 广告拦截'
     type: select
@@ -100,8 +96,8 @@ proxy-groups:
   - name: '兜底分流'
     type: select
     proxies: *Anchor_OB
-    use: [Sub]
 
+  # --- 地区子组 (自动选择) ---
   - name: '自动选择'
     <<: *Anchor_UT
     use: [Sub]
@@ -126,6 +122,17 @@ proxy-groups:
     filter: *Reg_KR
     use: [Sub]
 
+  - name: '台湾自动'
+    <<: *Anchor_UT
+    filter: *Reg_TW
+    use: [Sub]
+
+  - name: '新加坡自动'
+    <<: *Anchor_UT
+    filter: *Reg_SG
+    use: [Sub]
+
+  # --- 地区子组 (手动选择) ---
   - name: '香港手动'
     <<: *Anchor_HS
     filter: *Reg_HK
@@ -145,55 +152,56 @@ proxy-groups:
     <<: *Anchor_HS
     filter: *Reg_KR
     use: [Sub]
+
+  - name: '台湾手动'
+    <<: *Anchor_HS
+    filter: *Reg_TW
+    use: [Sub]
+
+  - name: '新加坡手动'
+    <<: *Anchor_HS
+    filter: *Reg_SG
+    use: [Sub]
+
 # ================= 规则模块 =================
 rule-providers:
   ai: { type: http, behavior: classical, url: 'https://cdn.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/Clash/OpenAI/OpenAI.yaml', path: ./ruleset/ai.yaml, interval: 86400 }
   github: { type: http, behavior: classical, url: 'https://cdn.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/Clash/GitHub/GitHub.yaml', path: ./ruleset/github.yaml, interval: 86400 }
   media: { type: http, behavior: classical, url: 'https://cdn.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/Clash/GlobalMedia/GlobalMedia.yaml', path: ./ruleset/media.yaml, interval: 86400 }
-  ads: { type: http, behavior: domain, url: 'https://cdn.jsdelivr.net/gh/Loyalsoldier/clash-rules@release/reject.txt', path: ./ruleset/ads.yaml, interval: 86400 }
   telegram: { type: http, behavior: classical, url: 'https://cdn.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/Clash/Telegram/Telegram.yaml', path: ./ruleset/telegram.yaml, interval: 86400 }
+  social: { type: http, behavior: classical, url: 'https://cdn.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/Clash/Global/Global.yaml', path: ./ruleset/social.yaml, interval: 86400 }
+  tiktok: { type: http, behavior: classical, url: 'https://cdn.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/Clash/TikTok/TikTok.yaml', path: ./ruleset/tiktok.yaml, interval: 86400 }
+  ads: { type: http, behavior: domain, url: 'https://cdn.jsdelivr.net/gh/Loyalsoldier/clash-rules@release/reject.txt', path: ./ruleset/ads.yaml, interval: 86400 }
 
 rules:
-  # 1. AI 满血域名分流 (强制走代理)
+  # 1. AI & Bing
   - DOMAIN,copilot.microsoft.com,AI
   - DOMAIN-SUFFIX,bing.com,AI
-  - DOMAIN-SUFFIX,bingvisualsearch.com,AI
-  - DOMAIN-KEYWORD,copilot,AI
-  - DOMAIN-SUFFIX,openai.com,AI
-  - DOMAIN-SUFFIX,chatgpt.com,AI
-  - DOMAIN-SUFFIX,oaistatic.com,AI
-  - DOMAIN-SUFFIX,oaiusercontent.com,AI
-  - DOMAIN-SUFFIX,anthropic.com,AI
-  - DOMAIN-SUFFIX,claude.ai,AI
-  - DOMAIN-SUFFIX,gemini.google.com,AI
-  - DOMAIN-KEYWORD,openai,AI
   - RULE-SET,ai,AI
   
-  # 2. GitHub 满血域名分流
-  - DOMAIN-SUFFIX,github.com,GitHub
-  - DOMAIN-SUFFIX,githubusercontent.com,GitHub
-  - DOMAIN-SUFFIX,githubassets.com,GitHub
-  - DOMAIN-KEYWORD,github,GitHub
+  # 2. GitHub
   - RULE-SET,github,GitHub
+  - DOMAIN-KEYWORD,github,GitHub
 
-  # 3. IPv4/IPv6 DDNS 保护与检测 (强制直连)
+  # 3. 社交 & 媒体
+  - RULE-SET,telegram,Telegram
+  - RULE-SET,tiktok,TikTok
+  - RULE-SET,media,流媒体
+  - RULE-SET,social,社交媒体
+
+  # 4. 系统 & 直连项
   - DOMAIN-KEYWORD,ddns,DIRECT
   - DOMAIN,ifconfig.me,DIRECT
   - DOMAIN,api.ipify.org,DIRECT
   - DOMAIN,ip.sb,DIRECT
-  - DOMAIN,v6.ident.me,DIRECT
   - DOMAIN-SUFFIX,aliyun.com,DIRECT
   - DOMAIN-SUFFIX,tencent.com,DIRECT
-  - DOMAIN-SUFFIX,duckdns.org,DIRECT
-  - DOMAIN-SUFFIX,no-ip.com,DIRECT
-  
-  # 4. 系统服务直连
   - GEOSITE,apple,DIRECT
   - GEOSITE,microsoft,DIRECT
   
-  # 5. 其他分流
+  # 5. 广告拦截
   - RULE-SET,ads,🛡️ 广告拦截
-  - RULE-SET,telegram,Telegram
-  - RULE-SET,media,流媒体
+  
+  # 6. 兜底分流
   - GEOIP,CN,DIRECT,no-resolve
   - MATCH,兜底分流
