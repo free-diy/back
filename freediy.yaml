@@ -1,19 +1,18 @@
+# OpenClash 终极定型版
 
-# 名称：OpenClash配置
-
-# 锚点定义 (极致精简重复逻辑)
-Anchor_PR: &Anchor_PR {type: http, interval: 3600, health-check: {enable: true, url: 'http://www.gstatic.com/generate_204', interval: 300}, filter: "^(?!.*(群|邀请|官网|流量|到期|订阅|提醒|测试)).*$"}
-Anchor_OB: &Anchor_OB [自动选择, 香港自动, 日本自动, 美国自动, 韩国自动, 香港手动, 日本手动, 美国手动, 韩国手动, DIRECT]
-Anchor_UT: &Anchor_UT {type: url-test, url: 'http://www.gstatic.com/generate_204', interval: 300, tolerance: 50, include-all: true, hidden: true, lazy: true}
-Anchor_HS: &Anchor_HS {type: select, include-all: true, hidden: false}
+# ================= 锚点定义 =================
+Anchor_PR: &Anchor_PR {type: http, interval: 3600, health-check: {enable: true, url: 'http://www.gstatic.com/generate_204', interval: 300}}
+Anchor_OB: &Anchor_OB [自动选择, 香港自动, 日本自动, 美国自动, 韩国自动, 香港手动, 日本手动, 美国手动, 韩国手动, 一键代理, DIRECT]
+Anchor_UT: &Anchor_UT {type: url-test, url: 'http://www.gstatic.com/generate_204', interval: 300, tolerance: 50, include-all: true}
+Anchor_HS: &Anchor_HS {type: select, include-all: true}
 
 # 地区识别正则
-Reg_HK: &Reg_HK '^(?i)(?=.*(香港|🇭🇰|HK|Hong)).*$'
-Reg_JP: &Reg_JP '^(?i)(?=.*(日本|🇯🇵|JP|Japan)).*$'
-Reg_US: &Reg_US '^(?i)(?=.*(美国|美國|🇺🇸|US|United States)).*$'
-Reg_KR: &Reg_KR '^(?i)(?=.*(韩国|韓國|🇰🇷|KR|Korea)).*$'
+Reg_HK: &Reg_HK '(?i)香港|HK|Hong|HKG|HONGKONG'
+Reg_JP: &Reg_JP '(?i)日本|JP|Japan|NRT|KIX|TOK|东京|大阪'
+Reg_US: &Reg_US '(?i)美国|US|States|USA|LAX|SFO|纽约'
+Reg_KR: &Reg_KR '(?i)韩国|KR|Korea|首尔|SEL|KOR|春川'
 
-# 核心设置
+# ================= 核心设置 =================
 mixed-port: 7890
 allow-lan: true
 mode: rule
@@ -21,64 +20,111 @@ ipv6: true
 unified-delay: true
 tcp-concurrent: true
 global-client-fingerprint: chrome
+
+# 开启嗅探，确保分流准确性
 sniffer:
   enable: true
-  sniff: { HTTP: {ports: [80, 8080-8880]}, TLS: {ports: [443, 8443]}, QUIC: {ports: [443, 8443]} }
-  skip-domain: ['Mijia Cloud', '+.apple.com']
+  sniff:
+    HTTP: {ports: [80, 8080-8880], override-destination: true}
+    TLS: {ports: [443, 8443], override-destination: true}
+    QUIC: {ports: [443, 8443], override-destination: true}
+  skip-domain: ['Mijia Cloud', '+.apple.com', '+.xiaomi.com', 'msftconnecttest.com', 'digicert.com']
+
 dns:
   enable: true
   enhanced-mode: fake-ip
   fake-ip-range: 198.18.0.1/16
-  nameserver: [https://doh.pub/dns-query, https://dns.alidns.com/dns-query]
+  proxy-server-nameserver: [180.184.1.1, 180.184.2.2]
+  # 关键：过滤 DDNS 和核心网站，防止 Fake-IP 干扰
+  fake-ip-filter:
+    - '+.aliyun.com'
+    - '+.tencent.com'
+    - '+.duckdns.org'
+    - 'ifconfig.me'
+    - 'api.ipify.org'
+    - 'ip.sb'
+    - 'v6.ident.me'
+    - '+.bing.com'
+    - '+.github.com'
+    - '+.githubusercontent.com'
+  nameserver: [223.5.5.5, 119.29.29.29]
+  fallback: [8.8.8.8, 1.1.1.1]
 
-# 机场订阅
+# ================= 机场订阅 =================
 proxy-providers:
-  机场名: 
+  Sub: 
     <<: *Anchor_PR
-    url: "这里填入你的订阅地址" 
+    url: "你的机场订阅地址" 
 
-# 策略组 (业务组全节点可选 + 地区组各自可见)
+# ================= 策略组 =================
 proxy-groups:
-  - {name: '一键代理', type: select, proxies: *Anchor_OB, use: [机场名]}
-  - {name: 'AI', type: select, proxies: *Anchor_OB, use: [机场名]}
-  - {name: 'YouTube', type: select, proxies: *Anchor_OB, use: [机场名]}
-  - {name: 'GitHub', type: select, proxies: *Anchor_OB, use: [机场名]}
-  - {name: '流媒体', type: select, proxies: *Anchor_OB, use: [机场名]}
-  - {name: 'TikTok', type: select, proxies: *Anchor_OB, use: [机场名]}
-  - {name: '社交媒体', type: select, proxies: *Anchor_OB, use: [机场名]}
-  - {name: 'Telegram', type: select, proxies: *Anchor_OB, use: [机场名]}
+  - {name: '一键代理', type: select, use: [Sub]} 
+  - {name: 'AI', type: select, proxies: *Anchor_OB, use: [Sub]} 
+  - {name: '流媒体', type: select, proxies: *Anchor_OB, use: [Sub]}
+  - {name: 'TikTok', type: select, proxies: *Anchor_OB, use: [Sub]}
+  - {name: 'GitHub', type: select, proxies: *Anchor_OB, use: [Sub]}
+  - {name: '社交媒体', type: select, proxies: *Anchor_OB, use: [Sub]}
+  - {name: 'Telegram', type: select, proxies: *Anchor_OB, use: [Sub]}
   - {name: '🛡️ 广告拦截', type: select, proxies: [REJECT, DIRECT]}
-  - {name: '兜底分流', type: select, proxies: *Anchor_OB, use: [机场名]}
+  - {name: '兜底分流', type: select, proxies: *Anchor_OB, use: [Sub]}
 
-  - {name: '自动选择', <<: *Anchor_UT, use: [机场名]}
-  - {name: 香港自动, <<: *Anchor_UT, filter: *Reg_HK, use: [机场名]}
-  - {name: 日本自动, <<: *Anchor_UT, filter: *Reg_JP, use: [机场名]}
-  - {name: 美国自动, <<: *Anchor_UT, filter: *Reg_US, use: [机场名]}
-  - {name: 韩国自动, <<: *Anchor_UT, filter: *Reg_KR, use: [机场名]}
+  - {name: '自动选择', <<: *Anchor_UT, use: [Sub]}
+  - {name: 香港自动, <<: *Anchor_UT, filter: *Reg_HK, use: [Sub]}
+  - {name: 日本自动, <<: *Anchor_UT, filter: *Reg_JP, use: [Sub]}
+  - {name: 美国自动, <<: *Anchor_UT, filter: *Reg_US, use: [Sub]}
+  - {name: 韩国自动, <<: *Anchor_UT, filter: *Reg_KR, use: [Sub]}
   
-  - {name: 香港手动, <<: *Anchor_HS, filter: *Reg_HK, use: [机场名]}
-  - {name: 日本手动, <<: *Anchor_HS, filter: *Reg_JP, use: [机场名]}
-  - {name: 美国手动, <<: *Anchor_HS, filter: *Reg_US, use: [机场名]}
-  - {name: 韩国手动, <<: *Anchor_HS, filter: *Reg_KR, use: [机场名]}
+  - {name: 香港手动, <<: *Anchor_HS, filter: *Reg_HK, use: [Sub]}
+  - {name: 日本手动, <<: *Anchor_HS, filter: *Reg_JP, use: [Sub]}
+  - {name: 美国手动, <<: *Anchor_HS, filter: *Reg_US, use: [Sub]}
+  - {name: 韩国手动, <<: *Anchor_HS, filter: *Reg_KR, use: [Sub]}
 
-# 规则模块 (最精简的外部规则源)
+# ================= 规则模块 =================
 rule-providers:
   ai: { type: http, behavior: classical, url: 'https://cdn.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/Clash/OpenAI/OpenAI.yaml', path: ./ruleset/ai.yaml, interval: 86400 }
-  youtube: { type: http, behavior: classical, url: 'https://cdn.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/Clash/YouTube/YouTube.yaml', path: ./ruleset/youtube.yaml, interval: 86400 }
   github: { type: http, behavior: classical, url: 'https://cdn.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/Clash/GitHub/GitHub.yaml', path: ./ruleset/github.yaml, interval: 86400 }
-  media: { type: http, behavior: classical, url: 'https://cdn.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/Clash/Netflix/Netflix.yaml', path: ./ruleset/media.yaml, interval: 86400 }
-  telegram: { type: http, behavior: classical, url: 'https://cdn.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/Clash/Telegram/Telegram.yaml', path: ./ruleset/telegram.yaml, interval: 86400 }
+  media: { type: http, behavior: classical, url: 'https://cdn.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/Clash/GlobalMedia/GlobalMedia.yaml', path: ./ruleset/media.yaml, interval: 86400 }
   ads: { type: http, behavior: domain, url: 'https://cdn.jsdelivr.net/gh/Loyalsoldier/clash-rules@release/reject.txt', path: ./ruleset/ads.yaml, interval: 86400 }
+  telegram: { type: http, behavior: classical, url: 'https://cdn.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/Clash/Telegram/Telegram.yaml', path: ./ruleset/telegram.yaml, interval: 86400 }
 
 rules:
-  - RULE-SET,ads,🛡️ 广告拦截
+  # 1. AI 满血域名分流
+  - DOMAIN-SUFFIX,bing.com,AI
+  - DOMAIN-SUFFIX,openai.com,AI
+  - DOMAIN-SUFFIX,chatgpt.com,AI
+  - DOMAIN-SUFFIX,oaistatic.com,AI
+  - DOMAIN-SUFFIX,oaiusercontent.com,AI
+  - DOMAIN-SUFFIX,anthropic.com,AI
+  - DOMAIN-SUFFIX,claude.ai,AI
+  - DOMAIN-SUFFIX,gemini.google.com,AI
+  - DOMAIN-KEYWORD,openai,AI
   - RULE-SET,ai,AI
+  
+  # 2. GitHub 满血域名分流
+  - DOMAIN-SUFFIX,github.com,GitHub
+  - DOMAIN-SUFFIX,githubusercontent.com,GitHub
+  - DOMAIN-SUFFIX,githubassets.com,GitHub
+  - DOMAIN-KEYWORD,github,GitHub
   - RULE-SET,github,GitHub
-  - RULE-SET,youtube,YouTube
-  - RULE-SET,media,流媒体
-  - RULE-SET,telegram,Telegram
+
+  # 3. IPv4/IPv6 DDNS 保护与检测 (强制直连)
+  - DOMAIN-KEYWORD,ddns,DIRECT
+  - DOMAIN,ifconfig.me,DIRECT
+  - DOMAIN,api.ipify.org,DIRECT
+  - DOMAIN,ip.sb,DIRECT
+  - DOMAIN,v6.ident.me,DIRECT
+  - DOMAIN-SUFFIX,aliyun.com,DIRECT
+  - DOMAIN-SUFFIX,tencent.com,DIRECT
+  - DOMAIN-SUFFIX,duckdns.org,DIRECT
+  - DOMAIN-SUFFIX,no-ip.com,DIRECT
+  
+  # 4. 系统服务直连
   - GEOSITE,apple,DIRECT
   - GEOSITE,microsoft,DIRECT
-  - DOMAIN-SUFFIX,bing.com,AI
+  
+  # 5. 其他分流
+  - RULE-SET,ads,🛡️ 广告拦截
+  - RULE-SET,telegram,Telegram
+  - RULE-SET,media,流媒体
   - GEOIP,CN,DIRECT,no-resolve
   - MATCH,兜底分流
