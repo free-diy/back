@@ -1,0 +1,45 @@
+name: Repo Keep Alive
+
+on:
+  schedule:
+    - cron: '0 3 * * 0'
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  keep_alive:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      
+    steps:
+      - name: 1. Checkout
+        uses: actions/checkout@v4
+
+      - name: 2. Space Breathing Keep Alive
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
+          if [ ! -f README.md ]; then
+            echo "# Repository Mirror" > README.md
+          fi
+          
+          # 获取最后一个字符的 ASCII 码
+          LAST_CHAR=$(tail -c 1 README.md | xargs -0 printf "%d" 2>/dev/null || echo "0")
+          
+          if [ "$LAST_CHAR" = "32" ]; then
+            echo "Removing space..."
+            head -c -1 README.md > README.tmp && mv README.tmp README.md
+          else
+            echo "Adding space..."
+            printf " " >> README.md
+          fi
+          
+          git add README.md
+          if ! git diff --quiet --staged; then
+            git commit -m "chore: keep alive [skip ci]"
+            git push
+          fi
