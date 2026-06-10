@@ -1,0 +1,156 @@
+name: Sync upstream
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+    inputs:
+      target_commit:
+        description: 'Commit hash or Tag (leave blank to use latest commit)'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  # ========================================================================
+  # 通用配置区：请根据实际情况修改以下变量，即可适配任意仓库
+  # ========================================================================
+  UPSTREAM_REPO: "owner/repo"                          # 必填：上游仓库，例如 "shuaiplus/NodeWarden"
+  UPSTREAM_BRANCH: "main"                              # 必填：上游需要同步的目标分支
+  LOCAL_BRANCH: "main"                                 # 必填：本地要同步合并的分支
+  WORKFLOW_FILE: ".github/workflows/sync-upstream.yml" # 必填：当前工作流文件的相对路径（用于防止被上游覆盖）
+  # ========================================================================
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream
+        run: |
+          git remote add upstream https://github.com/${{ env.UPSTREAM_REPO }}.git || true
+          git fetch upstream --tags
+
+      - name: Resolve target commit
+        id: resolve
+        run: |
+          TRIGGER="${{ github.event_name }}"
+          MANUAL_INPUT="${{ github.event.inputs.target_commit }}"
+
+          if [ "$TRIGGER" = "schedule" ]; then
+            # 自动模式：解析上游最新的 Release Tag
+            LATEST_TAG=$(curl -s "https://api.github.com/repos/${{ env.UPSTREAM_REPO }}/releases/latest" | jq -r .tag_name)
+            if [ "$LATEST_TAG" = "null" ] || [ -z "$LATEST_TAG" ]; then
+              echo "No release found in upstream."
+              exit 1
+            fi
+            TARGET_SHA=$(git rev-list -n 1 "$LATEST_TAG" 2>/dev/null)
+            if [ -z "$TARGET_SHA" ]; then
+              echo "Tag '$LATEST_TAG' not found after fetch."
+              exit 1
+            fi
+            echo "mode=auto" >> $GITHUB_OUTPUT
+            echo "latest_tag=$LATEST_TAG" >> $GITHUB_OUTPUT
+            echo "target_sha=$TARGET_SHA" >> $GITHUB_OUTPUT
+            echo "Auto mode — latest release: $LATEST_TAG ($TARGET_SHA)"
+
+          elif [ -n "$MANUAL_INPUT" ]; then
+            # 手动模式：使用提供的 commit hash 或 tag
+            TARGET_SHA=$(git rev-parse "$MANUAL_INPUT" 2>/dev/null)
+            if [ -z "$TARGET_SHA" ]; then
+              echo "Cannot resolve '$MANUAL_INPUT' to a commit."
+              exit 1
+            fi
+            echo "mode=manual" >> $GITHUB_OUTPUT
+            echo "target_sha=$TARGET_SHA" >> $GITHUB_OUTPUT
+            echo "Manual mode — target: $MANUAL_INPUT ($TARGET_SHA)"
+
+          else
+            # 手动模式，输入为空：使用上游指定分支的最新 commit
+            TARGET_SHA=$(git rev-parse upstream/${{ env.UPSTREAM_BRANCH }})
+            echo "mode=manual" >> $GITHUB_OUTPUT
+            echo "target_sha=$TARGET_SHA" >> $GITHUB_OUTPUT
+            echo "Manual mode — latest commit: $TARGET_SHA"
+          fi
+
+      - name: Check if update is needed
+        id: check
+        run: |
+          TARGET_SHA="${{ steps.resolve.outputs.target_sha }}"
+          MODE="${{ steps.resolve.outputs.mode }}"
+
+          if [ "$MODE" = "manual" ]; then
+            # 手动模式：只有当前 HEAD 完全匹配目标时才跳过
+            CURRENT_SHA=$(git rev-parse HEAD)
+            if [ "$CURRENT_SHA" = "$TARGET_SHA" ]; then
+              echo "Already at $TARGET_SHA — skipping."
+              echo "needs_update=false" >> $GITHUB_OUTPUT
+            else
+              echo "Switching to $TARGET_SHA"
+              echo "needs_update=true" >> $GITHUB_OUTPUT
+            fi
+          else
+            # 自动模式：如果目标已经是当前分支的祖先节点，则跳过
+            if git merge-base --is-ancestor "$TARGET_SHA" HEAD 2>/dev/null; then
+              echo "Already up to date with $TARGET_SHA — skipping."
+              echo "needs_update=false" >> $GITHUB_OUTPUT
+            else
+              echo "Update needed — target: $TARGET_SHA"
+              echo "needs_update=true" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+      - name: Apply update
+        if: steps.check.outputs.needs_update == 'true'
+        run: |
+          TARGET_SHA="${{ steps.resolve.outputs.target_sha }}"
+          MODE="${{ steps.resolve.outputs.mode }}"
+          
+          # 切换到环境变量中指定的本地分支
+          git checkout ${{ env.LOCAL_BRANCH }}
+          
+          if [ "$MODE" = "manual" ]; then
+            # 硬重置允许升级和回滚
+            git reset --hard "$TARGET_SHA"
+          else
+            git merge "$TARGET_SHA" --no-edit
+          fi
+
+      - name: Restore workflow file
+        if: steps.check.outputs.needs_update == 'true'
+        run: |
+          # 使用环境变量动态保护当前工作流文件
+          git checkout HEAD@{1} -- ${{ env.WORKFLOW_FILE }} 2>/dev/null || true
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: restore sync-upstream workflow after sync"
+          fi
+
+      - name: Push
+        if: steps.check.outputs.needs_update == 'true'
+        run: |
+          if [ "${{ steps.resolve.outputs.mode }}" = "manual" ]; then
+            git push origin ${{ env.LOCAL_BRANCH }} --force
+          else
+            git push origin ${{ env.LOCAL_BRANCH }}
+          fi
+
+      - name: Summary
+        run: |
+          if [ "${{ steps.check.outputs.needs_update }}" = "true" ]; then
+            echo "### Synced successfully" >> $GITHUB_STEP_SUMMARY
+            echo "- **Mode:** ${{ steps.resolve.outputs.mode }}" >> $GITHUB_STEP_SUMMARY
+            echo "- **Tag:** ${{ steps.resolve.outputs.latest_tag || 'N/A (manual)' }}" >> $GITHUB_STEP_SUMMARY
+            echo "- **Commit:** \`${{ steps.resolve.outputs.target_sha }}\`" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### Nothing to update" >> $GITHUB_STEP_SUMMARY
+          fi
