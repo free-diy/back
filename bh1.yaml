@@ -2,7 +2,6 @@ payload:
   - DOMAIN-SUFFIX,video-cdn.net
   - DOMAIN-SUFFIX,live-video.net
   - DOMAIN-SUFFIX,pandalive.co.kr
-
   - SRC-IP-CIDR,192.168.100.100/30
   - SRC-IP-CIDR,192.168.100.104/29
   - SRC-IP-CIDR,192.168.100.112/28
