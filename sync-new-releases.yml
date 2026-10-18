@@ -1,4 +1,4 @@
-name: Sync Upstream Releases
+name: Sync Upstream New Releases
 
 on:
   #schedule:
@@ -20,7 +20,7 @@ jobs:
       - name: Sync Releases
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          UPSTREAM_REPO: "RipplePiam/MobaXterm-Chinese-Simplified"
+          UPSTREAM_REPO: "RipplePiam/MobaXterm-Chinese-Simplified" # ⚠️ 请修改为上游原仓库，例如: "octocat/Spoon-Knife"
         run: |
           echo "正在获取上游仓库 $UPSTREAM_REPO 的 Release 列表..."
           
