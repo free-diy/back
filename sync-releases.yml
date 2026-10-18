@@ -1,0 +1,102 @@
+name: Sync Upstream Releases & Assets
+
+on:
+  schedule:
+    - cron: '0 2 * * *' # 每天凌晨 2 点自动运行一次（可按需修改）
+  workflow_dispatch: # 允许在 GitHub Actions 页面手动点击触发
+
+jobs:
+  sync-releases:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # 赋予写入权限以便创建 Release 和上传附件
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Sync Releases and Assets
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UPSTREAM_REPO: "FongMi/Release" # ⚠️ 请修改为上游原仓库，例如: "octocat/Spoon-Knife"
+        run: |
+          python3 - << 'EOF'
+          import os
+          import subprocess
+          import json
+          import glob
+
+          upstream = os.environ["UPSTREAM_REPO"]
+          target = os.environ["GITHUB_REPOSITORY"]
+
+          print(f"开始检查并同步上游 [{upstream}] 的 Releases 到 [{target}]...")
+
+          # 获取上游所有的 Releases（支持分页）
+          cmd = ["gh", "api", f"repos/{upstream}/releases", "--paginate"]
+          result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+          if result.returncode != 0:
+              print(f"获取上游 Releases 失败: {result.stderr}")
+              exit(1)
+
+          releases = json.loads(result.stdout)
+          # 反转列表，从旧到新处理，保证时间线正确
+          releases.reverse()
+
+          for rel in releases:
+              tag = rel["tag_name"]
+              title = rel["name"] or tag
+              body = rel["body"] or ""
+              draft = rel["draft"]
+              prerelease = rel["prerelease"]
+
+              # 检查你的 Fork 仓库中是否已经存在该 Release
+              check_cmd = subprocess.run(["gh", "release", "view", tag, "-R", target], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+              if check_cmd.returncode != 0:
+                  print(f"==> 发现新 Release，正在同步: {tag}")
+                  
+                  # 在你的仓库中创建对应的 Release
+                  create_args = ["gh", "release", "create", tag, "-R", target, "--title", title, "--notes", body]
+                  if draft:
+                      create_args.append("--draft")
+                  if prerelease:
+                      create_args.append("--prerelease")
+                  
+                  create_res = subprocess.run(create_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                  if create_res.returncode != 0:
+                      print(f"创建 Release {tag} 失败: {create_res.stderr}")
+                      continue
+
+                  # 检查上游该 Release 是否带有二进制附件
+                  assets = rel.get("assets", [])
+                  if assets:
+                      os.makedirs("./temp_assets", exist_ok=True)
+                      print(f"正在下载 {tag} 的二进制附件...")
+                      
+                      # 下载上游附件到临时目录
+                      dl_res = subprocess.run(["gh", "release", "download", tag, "-D", "./temp_assets", "-R", upstream], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                      if dl_res.returncode == 0:
+                          files = glob.glob("./temp_assets/*")
+                          if files:
+                              print(f"正在将附件上传到你的 Fork 仓库...")
+                              # 将附件上传到你仓库对应的 Release 中
+                              up_args = ["gh", "release", "upload", tag] + files + ["-R", target, "--clobber"]
+                              subprocess.run(up_args, check=True)
+                      else:
+                          print(f"下载附件失败: {dl_res.stderr.decode() if hasattr(dl_res.stderr, 'decode') else dl_res.stderr}")
+
+                      # 清理临时文件
+                      for f in files:
+                          try:
+                              os.remove(f)
+                          except:
+                              pass
+              else:
+                pass
+
+          print("Releases 与附件同步检查完成！")
+          EOF
