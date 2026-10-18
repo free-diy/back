@@ -1,4 +1,4 @@
-name: Sync Upstream All Releases
+name: Sync Upstream All Releases & Assets
 
 on:
   schedule:
@@ -9,18 +9,25 @@ jobs:
   sync-releases:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # 赋予写入权限以便创建 Release 和上传附件
+      contents: write # 赋予写入权限以便推送、删除 Tags、创建和管理 Releases
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # 必须为 0，才能完整获取所有历史 Tags
+
+      - name: Setup Git Identity
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      - name: Sync Releases and Assets
+      - name: Sync Tags and Releases
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           UPSTREAM_REPO: "FongMi/Release" # ⚠️ 请修改为上游原仓库，例如: "octocat/Spoon-Knife"
@@ -30,36 +37,92 @@ jobs:
           import subprocess
           import json
           import glob
+          import shutil
 
           upstream = os.environ["UPSTREAM_REPO"]
           target = os.environ["GITHUB_REPOSITORY"]
 
-          print(f"开始检查并同步上游 [{upstream}] 的 Releases 到 [{target}]...")
+          print(f"开始双向镜像同步上游 [{upstream}] 的 Tags 和 Releases 到 [{target}]...")
 
-          # 获取上游所有的 Releases（支持分页）
+          # --- 第一部分：双向同步 Git Tags (增加与删除) ---
+          print("正在同步 Git Tags...")
+          subprocess.run(["git", "remote", "add", "upstream", f"https://github.com/{upstream}.git"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+          subprocess.run(["git", "fetch", "upstream", "--tags", "--force"], check=True)
+
+          # 获取上游的所有 Tags
+          res_up = subprocess.run(["git", "ls-remote", "--tags", "upstream"], stdout=subprocess.PIPE, text=True, check=True)
+          upstream_tags = set()
+          for line in res_up.stdout.splitlines():
+              parts = line.split("\t")
+              if len(parts) == 2:
+                  ref = parts[1]
+                  if ref.startswith("refs/tags/") and not ref.endswith("^{}"):
+                      tag_name = ref.replace("refs/tags/", "")
+                      upstream_tags.add(tag_name)
+
+          # 获取你本地 (origin) 的所有 Tags
+          res_loc = subprocess.run(["git", "ls-remote", "--tags", "origin"], stdout=subprocess.PIPE, text=True, check=True)
+          local_tags = set()
+          for line in res_loc.stdout.splitlines():
+              parts = line.split("\t")
+              if len(parts) == 2:
+                  ref = parts[1]
+                  if ref.startswith("refs/tags/") and not ref.endswith("^{}"):
+                      tag_name = ref.replace("refs/tags/", "")
+                      local_tags.add(tag_name)
+
+          # 1. 删除本地有但上游已经删掉的 Tags
+          for tag in local_tags:
+              if tag not in upstream_tags:
+                  print(f"==> 发现上游已删除 Tag: [{tag}]，正在从你的 Fork 仓库中删除...")
+                  subprocess.run(["git", "tag", "-d", tag], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                  subprocess.run(["git", "push", "origin", f":refs/tags/{tag}"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+          # 2. 推送所有新增/更新的 Tags 到你的仓库
+          subprocess.run(["git", "push", "origin", "--tags", "--force"], check=True)
+          print("Tags 双向同步完成！")
+
+
+          # --- 第二部分：同步 Releases 页面与二进制附件 ---
+          print("正在同步 Releases 页面与附件...")
           cmd = ["gh", "api", f"repos/{upstream}/releases", "--paginate"]
           result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
           if result.returncode != 0:
               print(f"获取上游 Releases 失败: {result.stderr}")
               exit(1)
 
-          releases = json.loads(result.stdout)
-          # 反转列表，从旧到新处理，保证时间线正确
-          releases.reverse()
+          upstream_releases = json.loads(result.stdout)
+          upstream_rel_tags = {rel["tag_name"] for rel in upstream_releases}
 
-          for rel in releases:
+          local_cmd = ["gh", "api", f"repos/{target}/releases", "--paginate"]
+          local_result = subprocess.run(local_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+          if local_result.returncode != 0:
+              print(f"获取本地 Releases 失败: {local_result.stderr}")
+              exit(1)
+
+          local_releases = json.loads(local_result.stdout)
+          local_tags_map = {rel["tag_name"]: rel for rel in local_releases}
+
+          # 1. 清理本地 Release list 中多余的（上游 Release list 已移除的）Release 页面
+          for local_tag, local_rel in local_tags_map.items():
+              if local_tag not in upstream_rel_tags:
+                  print(f"==> 发现上游 Release list 已移除: [{local_tag}]，正在清理本地 Release 页面...")
+                  subprocess.run(["gh", "release", "delete", local_tag, "-R", target, "--yes"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+          # 2. 同步/更新上游现有的 Releases
+          upstream_releases.reverse() # 从旧到新处理
+
+          for rel in upstream_releases:
               tag = rel["tag_name"]
               title = rel["name"] or tag
               body = rel["body"] or ""
               draft = rel["draft"]
-              prerelease = rel["prerelease"]
+              prerelease = rel.get("prerelease", False)
+              upstream_assets = rel.get("assets", [])
+              upstream_asset_names = {u["name"] for u in upstream_assets}
 
-              # 检查你的 Fork 仓库中是否已经存在该 Release
-              check_cmd = subprocess.run(["gh", "release", "view", tag, "-R", target], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-              if check_cmd.returncode != 0:
-                  print(f"==> 发现新 Release，正在同步: {tag}")
-                  
-                  # 在你的仓库中创建对应的 Release
+              if tag not in local_tags_map:
+                  print(f"==> 发现新 Release，正在创建: {tag}")
                   create_args = ["gh", "release", "create", tag, "-R", target, "--title", title, "--notes", body]
                   if draft:
                       create_args.append("--draft")
@@ -71,32 +134,53 @@ jobs:
                       print(f"创建 Release {tag} 失败: {create_res.stderr}")
                       continue
 
-                  # 检查上游该 Release 是否带有二进制附件
-                  assets = rel.get("assets", [])
-                  if assets:
+                  if upstream_assets:
+                      shutil.rmtree("./temp_assets", ignore_errors=True)
                       os.makedirs("./temp_assets", exist_ok=True)
-                      print(f"正在下载 {tag} 的二进制附件...")
-                      
-                      # 下载上游附件到临时目录
-                      dl_res = subprocess.run(["gh", "release", "download", tag, "-D", "./temp_assets", "-R", upstream], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                      print(f"└── 正在下载 {tag} 的二进制附件...")
+                      dl_res = subprocess.run(["gh", "release", "download", tag, "-D", "./temp_assets", "-R", upstream, "--clobber"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
                       if dl_res.returncode == 0:
                           files = glob.glob("./temp_assets/*")
                           if files:
-                              print(f"正在将附件上传到你的 Fork 仓库...")
-                              # 将附件上传到你仓库对应的 Release 中
-                              up_args = ["gh", "release", "upload", tag] + files + ["-R", target, "--clobber"]
-                              subprocess.run(up_args, check=True)
-                      else:
-                          print(f"下载附件失败: {dl_res.stderr.decode() if hasattr(dl_res.stderr, 'decode') else dl_res.stderr}")
-
-                      # 清理临时文件
-                      for f in files:
-                          try:
-                              os.remove(f)
-                          except:
-                              pass
+                              print(f"└── 正在将附件上传到你的 Fork 仓库...")
+                              subprocess.run(["gh", "release", "upload", tag] + files + ["-R", target, "--clobber"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                      shutil.rmtree("./temp_assets", ignore_errors=True)
               else:
-                pass
+                  local_rel_data = local_tags_map[tag]
+                  local_assets = {asset["name"]: asset for asset in local_rel_data.get("assets", [])}
+                  
+                  need_update = False
+                  for u_asset in upstream_assets:
+                      name = u_asset["name"]
+                      size = u_asset["size"]
+                      if name not in local_assets:
+                          print(f"==> [{tag}] 本地缺失附件: {name}")
+                          need_update = True
+                      elif local_assets[name]["size"] != size:
+                          print(f"==> [{tag}] 附件大小有变化 ({name})")
+                          need_update = True
 
-          print("Releases 与附件同步检查完成！")
+                  redundant_assets = [l_name for l_name in local_assets if l_name not in upstream_asset_names]
+                  if redundant_assets:
+                      print(f"==> [{tag}] 发现上游已移除的冗余附件: {redundant_assets}")
+                      need_update = True
+
+                  if need_update:
+                      for r_name in redundant_assets:
+                          asset_id = local_assets[r_name]["id"]
+                          print(f"└── 正在删除本地冗余附件: {r_name}")
+                          subprocess.run(["gh", "api", "-X", "DELETE", f"repos/{target}/releases/assets/{asset_id}"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+                      shutil.rmtree("./temp_assets", ignore_errors=True)
+                      os.makedirs("./temp_assets", exist_ok=True)
+                      print(f"└── 正在重新下载并同步 [{tag}] 最新的附件...")
+                      dl_res = subprocess.run(["gh", "release", "download", tag, "-D", "./temp_assets", "-R", upstream, "--clobber"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                      if dl_res.returncode == 0:
+                          files = glob.glob("./temp_assets/*")
+                          if files:
+                              print(f"└── 正在使用 --clobber 覆盖上传更新后的附件...")
+                              subprocess.run(["gh", "release", "upload", tag] + files + ["-R", target, "--clobber"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                      shutil.rmtree("./temp_assets", ignore_errors=True)
+
+          print("Releases 与 Tags 双向完整镜像同步完成！")
           EOF
