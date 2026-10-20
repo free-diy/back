@@ -103,33 +103,41 @@ jobs:
           local_releases = json.loads(local_result.stdout)
           local_tags_map = {rel["tag_name"]: rel for rel in local_releases}
 
-          # 1. 清理本地 Release list 中多余的（上游 Release list 已移除的）Release 页面
+          # 1. 清理本地 Release list 中多余的 Release 页面
           for local_tag, local_rel in local_tags_map.items():
               if local_tag not in upstream_rel_tags:
                   print(f"==> 发现上游 Release list 已移除: [{local_tag}]，正在清理本地 Release 页面...")
                   subprocess.run(["gh", "release", "delete", local_tag, "-R", target, "--yes"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
-          # 2. 同步/更新上游现有的 Releases
-          upstream_releases.reverse() # 从旧到新处理
+          # 2. 同步/更新上游现有的 Releases（利用 make_latest 精准控制 Latest 标签位置）
+          releases_to_process = list(reversed(upstream_releases))
 
-          for rel in upstream_releases:
+          for rel in releases_to_process:
               tag = rel["tag_name"]
               title = rel["name"] or tag
               body = rel["body"] or ""
               draft = rel["draft"]
               prerelease = rel.get("prerelease", False)
+              published_at = rel.get("published_at")
+              
+              is_latest = (rel["tag_name"] == upstream_releases[0]["tag_name"])
+              make_latest_val = "true" if is_latest else "false"
+
               upstream_assets = rel.get("assets", [])
               upstream_asset_names = {u["name"] for u in upstream_assets}
 
               if tag not in local_tags_map:
-                  print(f"==> 发现新 Release，正在创建: {tag}")
-                  create_args = ["gh", "release", "create", tag, "-R", target, "--title", title, "--notes", body]
-                  if draft:
-                      create_args.append("--draft")
-                  if prerelease:
-                      create_args.append("--prerelease")
-                  
-                  create_res = subprocess.run(create_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                  print(f"==> 发现新 Release，正在创建: {tag} (设为 Latest: {is_latest})")
+                  payload = json.dumps({
+                      "tag_name": tag,
+                      "name": title,
+                      "body": body,
+                      "draft": draft,
+                      "prerelease": prerelease,
+                      "published_at": published_at,
+                      "make_latest": make_latest_val
+                  })
+                  create_res = subprocess.run(["gh", "api", f"repos/{target}/releases", "--input", "-"], input=payload, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
                   if create_res.returncode != 0:
                       print(f"创建 Release {tag} 失败: {create_res.stderr}")
                       continue
@@ -147,8 +155,20 @@ jobs:
                       shutil.rmtree("./temp_assets", ignore_errors=True)
               else:
                   local_rel_data = local_tags_map[tag]
+                  local_rel_id = local_rel_data["id"]
                   local_assets = {asset["name"]: asset for asset in local_rel_data.get("assets", [])}
                   
+                  print(f"==> 正在同步更新 Release 元数据: {tag} (make_latest: {make_latest_val})")
+                  patch_payload = json.dumps({
+                      "name": title,
+                      "body": body,
+                      "draft": draft,
+                      "prerelease": prerelease,
+                      "published_at": published_at,
+                      "make_latest": make_latest_val
+                  })
+                  subprocess.run(["gh", "api", "-X", "PATCH", f"repos/{target}/releases/{local_rel_id}", "--input", "-"], input=patch_payload, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
                   need_update = False
                   for u_asset in upstream_assets:
                       name = u_asset["name"]
